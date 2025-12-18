@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>탐구 질문 확장 도구</title>
+    <!-- Tailwind CSS 로드 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter 폰트 설정 -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f7;
+        }
+        /* 모델의 응답(번호 목록)을 더 잘 표시하기 위한 스타일 */
+        #questionOutput {
+            white-space: pre-wrap; /* 줄바꿈 유지 */
+            text-align: left; /* 텍스트 왼쪽 정렬 */
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+    <!-- 커스텀 알림 메시지 박스를 위한 DOM 요소 -->
+    <div id="messageBox" class="fixed top-5 right-5 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg shadow-lg transition-opacity duration-300 opacity-0 pointer-events-none z-50"></div>
+
+    <div class="w-full max-w-lg bg-white p-6 md:p-10 rounded-2xl shadow-xl transition-all duration-300">
+        <!-- 제목 및 설명 -->
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-extrabold text-blue-700 mb-2">
+                탐구 질문 확장 도구
+            </h1>
+            <p class="text-gray-600 text-md">
+                간단한 문장을 심층적인 연구와 토론을 위한 질문으로 확장해 보세요.
+            </p>
+        </header>
+
+        <!-- 입력 영역 -->
+        <section class="space-y-6">
+            <label for="sentenceInput" class="block text-lg font-medium text-gray-700">
+                문장을 입력하세요:
+            </label>
+            <textarea id="sentenceInput" rows="3"
+                      placeholder="예: '태양광 발전은 친환경적이다.'"
+                      class="w-full p-4 border-2 border-blue-300 rounded-xl focus:ring-blue-500 focus:border-blue-500 transition duration-150 resize-none shadow-sm"
+            ></textarea>
+
+            <button id="generateButton" onclick="generateQuestion()"
+                    class="w-full py-3 px-4 bg-blue-600 text-white font-semibold rounded-xl shadow-lg hover:bg-blue-700 active:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-300 transition duration-150 ease-in-out transform hover:scale-[1.01] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                <span id="buttonText">탐구 질문 생성</span>
+                <svg id="spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </button>
+        </section>
+
+        <!-- 결과 영역 (입력 문장과 생성된 질문을 모두 표시) -->
+        <section id="resultSection" class="mt-8 pt-6 border-t border-gray-200 hidden">
+            
+            <h2 class="text-xl font-bold text-gray-800 mb-3">
+                입력된 문장:
+            </h2>
+            <!-- 입력 문장을 보여주는 작은 창 -->
+            <div id="inputEchoOutput" class="p-3 bg-gray-100 border border-gray-300 rounded-lg text-base text-gray-700 italic mb-4 shadow-inner">
+                <!-- 입력 문장이 여기에 표시됩니다 -->
+            </div>
+
+            <h2 class="text-xl font-bold text-gray-800 mb-3">
+                생성된 탐구 질문 3가지:
+            </h2>
+            <!-- 변경된 부분: 초록색 상자, 그림자, 부드러운 전환 효과 추가 -->
+            <div id="questionOutput" class="p-4 bg-green-50 border border-green-400 rounded-lg text-lg text-gray-900 leading-relaxed shadow-xl transition-opacity duration-500 opacity-0">
+                <!-- 결과 텍스트가 여기에 표시됩니다 -->
+            </div>
+            
+            <div id="sourcesOutput" class="mt-4 text-sm text-gray-500">
+                <!-- 참고 자료가 여기에 표시됩니다 -->
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // 중요한 변수 정의
+        const apiKey = ""; // API 키 (런타임에 자동 제공)
+        const modelName = "gemini-2.5-flash-preview-09-2025";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+        // DOM 요소 가져오기 (요소와 스크립트를 연결)
+        const inputField = document.getElementById('sentenceInput');
+        const generateBtn = document.getElementById('generateButton');
+        const buttonText = document.getElementById('buttonText');
+        const spinner = document.getElementById('spinner');
+        const resultSection = document.getElementById('resultSection');
+        const inputEchoOutput = document.getElementById('inputEchoOutput');
+        const questionOutput = document.getElementById('questionOutput');
+        const sourcesOutput = document.getElementById('sourcesOutput');
+        const messageBox = document.getElementById('messageBox');
+
+        // AI 모델에 대한 시스템 지침 설정
+        // 중학교 1학년 수준, 3가지 간결한 탐구 질문, 번호 목록 출력 형식으로 지정합니다.
+        const systemPrompt = "당신은 중학교 1학년 학생들의 비판적 사고와 탐구 능력을 돕는 전문 교육 보조원입니다. 당신의 임무는 제공된 문장을 바탕으로 **세 가지**의 **간결하고** 생각을 넓힐 수 있는 탐구 질문을 생성하는 것입니다. 질문들은 해당 연령대가 **이해하기 쉬우며**, 초기 문장의 내용을 넘어선 **더 넓은 주제와 함의**를 탐색하도록 유도해야 합니다. 출력은 오직 **번호가 매겨진 질문 목록 (1. 2. 3. ...)** 형태로만 제공해야 합니다. 서론이나 설명은 일체 포함하지 마세요.";
+
+        /**
+         * 지수 백오프를 사용하여 API 호출을 수행합니다. (네트워크 안정성 확보)
+         * @param {object} payload API 요청 페이로드
+         * @param {number} attempt 현재 시도 횟수
+         */
+        async function fetchWithBackoff(payload, attempt = 1) {
+            const maxAttempts = 5;
+            const delay = Math.pow(2, attempt) * 1000;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.status === 429 && attempt < maxAttempts) {
+                    // 속도 제한 발생 시 재시도
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return fetchWithBackoff(payload, attempt + 1);
+                }
+
+                if (!response.ok) {
+                    throw new Error(`HTTP 오류! 상태: ${response.status}`);
+                }
+
+                return response.json();
+
+            } catch (error) {
+                if (attempt < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return fetchWithBackoff(payload, attempt + 1);
+                }
+                throw new Error(`API 요청 실패 후 재시도 제한 초과: ${error.message}`);
+            }
+        }
+
+        /**
+         * UI 상태를 '로딩 중'으로 설정하거나 해제합니다. (버튼 활성화/스피너 제어)
+         * @param {boolean} isLoading 로딩 상태 여부
+         */
+        function setLoadingState(isLoading) {
+            generateBtn.disabled = isLoading;
+            spinner.classList.toggle('hidden', !isLoading);
+            buttonText.textContent = isLoading ? '질문 생성 중...' : '탐구 질문 생성';
+        }
+
+        /**
+         * 문장 입력에 기반하여 탐구 질문을 생성하는 메인 함수입니다.
+         */
+        async function generateQuestion() {
+            const userSentence = inputField.value.trim();
+
+            // 입력 문장 유효성 검사 (입력이 없을 경우 알림)
+            if (!userSentence) {
+                alertUser('먼저 문장을 입력해 주세요.');
+                return;
+            }
+
+            setLoadingState(true);
+            
+            // 결과 영역 초기 설정 및 입력 문장 표시
+            questionOutput.innerHTML = '질문 생성 중...';
+            questionOutput.classList.add('opacity-0'); // 질문이 나타나기 전 투명하게 설정
+            sourcesOutput.innerHTML = '';
+            inputEchoOutput.innerHTML = userSentence;
+            resultSection.classList.remove('hidden'); 
+
+            // 페이로드 구성
+            const payload = {
+                contents: [{ parts: [{ text: userSentence }] }],
+                // Google Search grounding을 사용하여 최신 정보를 기반으로 질문을 만듭니다.
+                tools: [{ "google_search": {} }], 
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                },
+            };
+
+            try {
+                const result = await fetchWithBackoff(payload);
+                const candidate = result.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const questionText = candidate.content.parts[0].text;
+                    let sources = [];
+                    const groundingMetadata = candidate.groundingMetadata;
+
+                    if (groundingMetadata && groundingMetadata.groundingAttributions) {
+                        sources = groundingMetadata.groundingAttributions
+                            .map(attribution => ({
+                                uri: attribution.web?.uri,
+                                title: attribution.web?.title,
+                            }))
+                            .filter(source => source.uri && source.title);
+                    }
+
+                    // 결과 표시
+                    questionOutput.innerHTML = questionText;
+                    // 부드러운 표시 효과 (투명도 0 -> 100%로 전환)
+                    questionOutput.classList.remove('opacity-0'); 
+                    
+                    if (sources.length > 0) {
+                        const sourceHtml = sources.map((s, index) => 
+                            `<a href="${s.uri}" target="_blank" class="text-blue-500 hover:text-blue-700 underline">${s.title}</a>`
+                        ).join(', ');
+                        sourcesOutput.innerHTML = `<strong>참고 자료:</strong> ${sourceHtml}`;
+                    } else {
+                        sourcesOutput.innerHTML = '';
+                    }
+
+                } else {
+                    alertUser('질문을 생성하지 못했습니다. 입력 문장을 확인해 주세요.');
+                    questionOutput.innerHTML = '질문을 생성하는 데 실패했습니다. 다시 시도해 주세요.';
+                }
+            } catch (error) {
+                console.error("질문 생성 중 오류 발생:", error);
+                alertUser('죄송합니다. 질문을 생성하는 동안 오류가 발생했습니다.');
+                questionOutput.innerHTML = 'API 통신 중 오류가 발생했습니다.';
+            } finally {
+                setLoadingState(false);
+            }
+        }
+
+        /**
+         * 사용자에게 알림 메시지를 표시합니다 (커스텀 메시지 박스 사용).
+         */
+        function alertUser(message) {
+            // 메시지 박스 스타일 업데이트 및 표시
+            messageBox.textContent = message;
+            messageBox.classList.remove('opacity-0', 'pointer-events-none');
+            messageBox.classList.add('opacity-100');
+            
+            // 3초 후 메시지 박스 숨기기
+            setTimeout(() => {
+                messageBox.classList.remove('opacity-100');
+                messageBox.classList.add('opacity-0', 'pointer-events-none');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
